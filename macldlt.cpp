@@ -115,16 +115,9 @@ void check_long_fits(int64_t v, const char* name)
     }
 }
 
-py::object scipy_sparse_module()
-{
-    static py::object mod = py::module_::import("scipy.sparse");
-    return mod;
-}
-
 py::object scipy_issparse()
 {
-    static py::object fn = scipy_sparse_module().attr("issparse");
-    return fn;
+    return py::module_::import("scipy.sparse").attr("issparse");
 }
 
 struct ScipyCSCView

@@ -265,6 +265,29 @@ class TestFactorizationTypes:
         x = solver.solve(b)
         npt.assert_allclose(x, np.linalg.solve(A_full, b), atol=1e-12)
 
+    def test_ldlt_unpivoted_on_spd(self):
+        """ldlt_unpivoted only works on positive definite matrices."""
+        A_full = np.array([[4.0, 1.0], [1.0, 3.0]])
+        A = sp.csc_matrix(np.triu(A_full))
+        solver = macldlt.LDLTSolver(A, factorization="ldlt_unpivoted")
+        b = np.array([1.0, 2.0])
+        x = solver.solve(b)
+        npt.assert_allclose(x, np.linalg.solve(A_full, b), atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Ordering variants
+# ---------------------------------------------------------------------------
+
+class TestOrderingTypes:
+    @pytest.mark.parametrize("order", ["default", "amd"])
+    def test_ordering_variant(self, order, A4_upper):
+        A_sp, A_full = A4_upper
+        solver = macldlt.LDLTSolver(A_sp, ordering=order)
+        b = np.array([1.0, 2.0, 3.0, 4.0])
+        x = solver.solve(b)
+        npt.assert_allclose(x, np.linalg.solve(A_full, b), atol=1e-12)
+
 
 # ---------------------------------------------------------------------------
 # Info and status
@@ -353,3 +376,95 @@ class TestLarger:
         B = rng.standard_normal((n, 5))
         X = solver.solve(B)
         npt.assert_allclose(M.toarray() @ X, B, atol=1e-8)
+
+
+# ---------------------------------------------------------------------------
+# Edge cases
+# ---------------------------------------------------------------------------
+
+class TestEdgeCases:
+    def test_1x1_matrix(self):
+        A = sp.csc_matrix(np.array([[3.0]]))
+        solver = macldlt.LDLTSolver(A)
+        x = solver.solve(np.array([6.0]))
+        npt.assert_allclose(x, [2.0], atol=1e-14)
+
+    def test_diagonal_matrix(self):
+        d = np.array([2.0, 5.0, 0.5, 10.0])
+        A = sp.diags(d, format="csc")
+        solver = macldlt.LDLTSolver(A)
+        b = np.array([1.0, 1.0, 1.0, 1.0])
+        x = solver.solve(b)
+        npt.assert_allclose(x, 1.0 / d, atol=1e-14)
+
+    def test_float32_data_coercion(self):
+        """float32 sparse data should be cast to float64 internally."""
+        A_full = np.array([[4.0, 1.0], [1.0, 3.0]], dtype=np.float32)
+        A = sp.csc_matrix(np.triu(A_full))
+        solver = macldlt.LDLTSolver(A)
+        b = np.array([1.0, 2.0])
+        x = solver.solve(b)
+        x_ref = np.linalg.solve(A_full.astype(np.float64), b)
+        npt.assert_allclose(x, x_ref, atol=1e-12)
+
+    def test_solve_inplace_2d_matches_solve(self, solver4):
+        B = np.asfortranarray(
+            np.array([[1.0, 2.0], [0.0, 1.0], [3.0, 4.0], [1.0, 0.0]])
+        )
+        X_copy = solver4.solve(B)
+        X_inplace = B.copy(order="F")
+        solver4.solve_inplace(X_inplace)
+        npt.assert_allclose(X_inplace, X_copy, atol=1e-14)
+
+
+# ---------------------------------------------------------------------------
+# Factor / refactor lifecycle
+# ---------------------------------------------------------------------------
+
+class TestFactorLifecycle:
+    def test_factor_replaces_previous(self):
+        """Calling factor() with same-pattern matrix replaces factorization."""
+        A_full = np.array([[4.0, 1.0], [1.0, 3.0]])
+        A = sp.csc_matrix(np.triu(A_full))
+        solver = macldlt.LDLTSolver(A)
+
+        A2_full = np.array([[10.0, 2.0], [2.0, 8.0]])
+        A2 = sp.csc_matrix(np.triu(A2_full))
+        solver.factor(A2)
+
+        b = np.array([1.0, 2.0])
+        x = solver.solve(b)
+        npt.assert_allclose(x, np.linalg.solve(A2_full, b), atol=1e-12)
+
+    def test_inertia_updates_after_factor(self):
+        """Inertia should reflect the re-factored matrix, not the original."""
+        A_full_pd = np.array([[4.0, 1.0], [1.0, 3.0]])
+        A_pd = sp.csc_matrix(np.triu(A_full_pd))
+        solver = macldlt.LDLTSolver(A_pd, factorization="ldlt_tpp")
+
+        neg1, zero1, pos1 = solver.inertia()
+        assert pos1 == 2 and neg1 == 0
+
+        # Change to indefinite (keep same pattern), use factor() not refactor()
+        # because SparseGetInertia does not reliably update after SparseRefactor
+        # on all macOS versions.
+        A_full_indef = np.array([[4.0, 1.0], [1.0, -3.0]])
+        A_indef = sp.csc_matrix(np.triu(A_full_indef))
+        solver.factor(A_indef)
+
+        neg2, zero2, pos2 = solver.inertia()
+        assert neg2 == 1 and pos2 == 1
+
+    def test_refactor_then_solve_multiple(self, solver4, A4_upper):
+        """Refactor then solve with multiple different RHS vectors."""
+        _, A_full = A4_upper
+        A2_full = A_full.copy()
+        A2_full[0, 0] += 1.0
+        A2_full[2, 2] += 1.0
+        A2 = sp.csc_matrix(np.triu(A2_full))
+        solver4.refactor(A2)
+
+        for i in range(5):
+            b = np.random.default_rng(i).standard_normal(4)
+            x = solver4.solve(b)
+            npt.assert_allclose(A2_full @ x, b, atol=1e-12)

@@ -303,6 +303,16 @@ class TestValidation:
         with pytest.raises(ValueError, match="ordering"):
             macldlt.LDLTSolver(A, ordering="random")
 
+    def test_solver_remains_usable_after_rejected_rhs(self, solver4, A4_upper):
+        _, A_full = A4_upper
+
+        with pytest.raises(ValueError, match="wrong"):
+            solver4.solve(np.array([1.0, 2.0]))
+
+        b = np.array([1.0, 2.0, 3.0, 4.0])
+        x = solver4.solve(b)
+        npt.assert_allclose(x, np.linalg.solve(A_full, b), atol=1e-12)
+
 
 # ---------------------------------------------------------------------------
 # Larger system
@@ -449,6 +459,28 @@ class TestRefactorValues:
     def test_rejects_2d(self, solver4):
         with pytest.raises((ValueError, TypeError)):
             solver4.refactor(np.ones((3, 3)))
+
+    def test_rejects_wrong_length_without_corrupting_solver(self, A4_upper):
+        A_sp, A_full = A4_upper
+        solver = macldlt.LDLTSolver(A_sp, triangle="upper")
+
+        with pytest.raises(ValueError, match="elements"):
+            solver.refactor(np.array([1.0, 2.0]))
+
+        b = np.array([1.0, 2.0, 3.0, 4.0])
+        x = solver.solve(b)
+        npt.assert_allclose(x, np.linalg.solve(A_full, b), atol=1e-12)
+
+    def test_rejects_2d_without_corrupting_solver(self, A4_upper):
+        A_sp, A_full = A4_upper
+        solver = macldlt.LDLTSolver(A_sp, triangle="upper")
+
+        with pytest.raises((ValueError, TypeError)):
+            solver.refactor(np.ones((3, 3)))
+
+        b = np.array([1.0, 2.0, 3.0, 4.0])
+        x = solver.solve(b)
+        npt.assert_allclose(x, np.linalg.solve(A_full, b), atol=1e-12)
 
     def test_float32_coercion(self, A4_upper):
         """float32 values should be cast automatically."""

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=64", "pybind11>=2.12"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "macldlt"
+version = "0.1.0"
+description = "Python wrapper for Apple Accelerate sparse LDL^T factorization"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    {name = "Brendan O'Donoghue"},
+]
+dependencies = [
+    "numpy",
+    "scipy",
+]
+classifiers = [
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

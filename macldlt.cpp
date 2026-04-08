@@ -30,7 +30,7 @@ namespace
 
 [[noreturn]] void throw_runtime_error(const std::string& msg)
 {
-    throw py::runtime_error(msg);
+    throw std::runtime_error(msg);
 }
 
 std::string sparse_status_to_string(SparseStatus_t s)

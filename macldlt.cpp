@@ -583,10 +583,10 @@ public:
     {
         ensure_numeric();
 
-        int num_negative = 0;
-        int num_zero = 0;
         int num_positive = 0;
-        SparseGetInertia(numeric_, &num_negative, &num_zero, &num_positive);
+        int num_zero = 0;
+        int num_negative = 0;
+        SparseGetInertia(numeric_, &num_positive, &num_zero, &num_negative);
         return py::make_tuple(num_negative, num_zero, num_positive);
     }
 

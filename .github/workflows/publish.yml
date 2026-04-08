@@ -43,6 +43,12 @@ jobs:
       - name: Build sdist
         run: pip install build && python -m build --sdist
 
+      - name: Smoke test sdist install
+        run: |
+          python -m venv .venv-sdist-smoke
+          .venv-sdist-smoke/bin/pip install dist/*.tar.gz
+          .venv-sdist-smoke/bin/python -c "import macldlt; print(macldlt.__doc__)"
+
       - uses: actions/upload-artifact@v4
         with:
           name: sdist

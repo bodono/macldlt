@@ -457,19 +457,7 @@ public:
         ensure_solve_workspace(required_solve_workspace_bytes(1));
     }
 
-    void refactor(const py::object& A)
-    {
-        ensure_numeric();
-
-        ScipyCSCView csc(A, false);
-        enforce_same_pattern(csc);
-
-        numeric_owner_ = csc.matrix;
-        numeric_values_ = csc.data_d;
-        refactor_current_numeric();
-    }
-
-    void refactor_values(py::array_t<double, py::array::c_style | py::array::forcecast> values)
+    void refactor(py::array_t<double, py::array::c_style | py::array::forcecast> values)
     {
         ensure_numeric();
 
@@ -486,9 +474,57 @@ public:
         refactor_current_numeric();
     }
 
-    py::array solve(const py::array& rhs)
+    py::array solve(py::array rhs, bool inplace = false)
     {
         ensure_numeric();
+
+        if (inplace)
+        {
+            if (!rhs.writeable())
+            {
+                throw_value_error("inplace solve requires a writeable array");
+            }
+
+            if (rhs.ndim() == 1)
+            {
+                if (!is_c_contiguous_1d_double(rhs))
+                {
+                    throw_value_error(
+                        "1D inplace solve requires a C-contiguous float64 array");
+                }
+
+                auto x = py::reinterpret_borrow<
+                    py::array_t<double, py::array::c_style>>(rhs);
+                if (x.shape(0) != n_)
+                {
+                    throw_value_error("rhs has wrong length");
+                }
+
+                solve_inplace_impl(x);
+                return rhs;
+            }
+
+            if (rhs.ndim() == 2)
+            {
+                if (!is_f_contiguous_2d_double(rhs))
+                {
+                    throw_value_error(
+                        "2D inplace solve requires an F-contiguous float64 array");
+                }
+
+                auto X = py::reinterpret_borrow<
+                    py::array_t<double, py::array::f_style>>(rhs);
+                if (X.shape(0) != n_)
+                {
+                    throw_value_error("rhs has wrong leading dimension");
+                }
+
+                solve_inplace_impl(X);
+                return rhs;
+            }
+
+            throw_value_error("rhs must be 1D or 2D");
+        }
 
         if (rhs.ndim() == 1)
         {
@@ -520,55 +556,6 @@ public:
         }
 
         throw_value_error("rhs must be 1D or 2D");
-    }
-
-    void solve_inplace(py::array& rhs_and_solution)
-    {
-        ensure_numeric();
-
-        py::array arr = py::reinterpret_borrow<py::array>(rhs_and_solution);
-        if (!arr.writeable())
-        {
-            throw_value_error("rhs_and_solution must be writeable");
-        }
-
-        if (arr.ndim() == 1)
-        {
-            if (!is_c_contiguous_1d_double(arr))
-            {
-                throw_value_error(
-                    "1D rhs_and_solution must be a C-contiguous float64 array");
-            }
-
-            auto x = py::reinterpret_borrow<py::array_t<double, py::array::c_style>>(arr);
-            if (x.shape(0) != n_)
-            {
-                throw_value_error("rhs has wrong length");
-            }
-
-            solve_inplace_impl(x);
-            return;
-        }
-
-        if (arr.ndim() == 2)
-        {
-            if (!is_f_contiguous_2d_double(arr))
-            {
-                throw_value_error(
-                    "2D rhs_and_solution must be an F-contiguous float64 array");
-            }
-
-            auto X = py::reinterpret_borrow<py::array_t<double, py::array::f_style>>(arr);
-            if (X.shape(0) != n_)
-            {
-                throw_value_error("rhs has wrong leading dimension");
-            }
-
-            solve_inplace_impl(X);
-            return;
-        }
-
-        throw_value_error("rhs_and_solution must be 1D or 2D");
     }
 
     py::tuple inertia() const
@@ -870,9 +857,8 @@ Construct an LDLT solver for a symmetric sparse matrix.
 
 Notes
 -----
-This class is not thread-safe. Do not call factor(), refactor(), solve(), or
-solve_inplace() concurrently on the same solver instance from multiple Python
-threads.
+This class is not thread-safe. Do not call factor(), refactor(), or solve()
+concurrently on the same solver instance from multiple Python threads.
 
 Symmetry is assumed but not checked. The selected stored triangle is assumed to
 match the matrix data actually provided. Passing a nonsymmetric matrix, or
@@ -915,22 +901,10 @@ factorization object and rebuild it from the current matrix values.
 )pbdoc")
         .def("refactor",
              &LDLTSolver::refactor,
-             py::arg("A"),
-             R"pbdoc(
-Reuse the existing symbolic analysis and numeric factorization object for a new
-matrix with identical sparsity pattern.
-
-This may be faster than factor() when only the numerical values change.
-)pbdoc")
-        .def("refactor_values",
-             &LDLTSolver::refactor_values,
              py::arg("values"),
              R"pbdoc(
-Fast-path refactor using only the nonzero values array.
-
-This is equivalent to refactor() but skips all scipy matrix parsing, format
-conversion, and sparsity pattern validation. Use this in tight loops where
-the sparsity pattern is unchanged and you already have the flat values array.
+Reuse the existing numeric factorization for new values with the same sparsity
+pattern.
 
 Parameters
 ----------
@@ -942,26 +916,18 @@ values : numpy.ndarray
 
     Non-float64 arrays are cast automatically, but passing float64 avoids
     the copy.
-
-Notes
------
-No pattern validation is performed. Passing values from a matrix with a
-different sparsity pattern is undefined behavior and may silently produce
-wrong results.
 )pbdoc")
         .def("solve",
              &LDLTSolver::solve,
              py::arg("rhs"),
-             "Solve Ax=b or AX=B and return a new NumPy array.")
-        .def("solve_inplace",
-             &LDLTSolver::solve_inplace,
-             py::arg("rhs_and_solution"),
+             py::arg("inplace") = false,
              R"pbdoc(
-Overwrite rhs with the solution in place.
+Solve Ax=b or AX=B.
 
-This function does not cast or copy:
-- 1D arrays must be writeable, C-contiguous float64 arrays
-- 2D arrays must be writeable, F-contiguous float64 arrays
+By default allocates and returns a new array. With inplace=True, overwrites
+rhs in place and returns it. Inplace requires:
+- 1D: writeable, C-contiguous float64
+- 2D: writeable, F-contiguous float64
 )pbdoc")
         .def("inertia",
              &LDLTSolver::inertia,

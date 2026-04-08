@@ -95,8 +95,8 @@ existing symbolic and numeric factorizations and rebuilds them. You must call
 `factor()` after this before solving.
 
 Call this when the nonzero structure of your matrix changes (e.g., entries
-appear or disappear). If only the numerical values change, use `refactor()` or
-`refactor_values()` instead.
+appear or disappear). If only the numerical values change, use `refactor()`
+instead.
 
 ```python
 A_new_pattern = sp.csc_matrix(...)  # different sparsity structure
@@ -123,91 +123,49 @@ x = solver.solve(b)
 
 ---
 
-### `solver.refactor(A)`
+### `solver.refactor(values)`
 
-Reuse the existing symbolic analysis **and** numeric factorization workspace
-for a new matrix with **identical sparsity pattern**. This calls Accelerate's
+Reuse the existing symbolic analysis and numeric factorization workspace for
+new values with the **same sparsity pattern**. This calls Accelerate's
 `SparseRefactor`, which can be faster than a full `factor()`.
 
-The matrix `A` is a SciPy sparse matrix. Its sparsity pattern must exactly
-match the pattern from the most recent `analyze()` or constructor call.
-
-```python
-# Solve for many matrices with the same pattern
-for values in value_sequence:
-    A_new = sp.csc_matrix((values, indices, indptr), shape=(n, n))
-    solver.refactor(A_new)
-    x = solver.solve(b)
-```
-
----
-
-### `solver.refactor_values(values)`
-
-Fast-path refactor using only the flat nonzero-values array. This skips all
-SciPy matrix parsing, format conversion, and sparsity pattern validation, making
-it the fastest way to update the numeric factorization.
-
 **Parameters:**
 
 | Parameter | Type | Description |
 |---|---|---|
-| `values` | `numpy.ndarray` | 1D float64 array of nonzero values in CSC storage order, matching the original sparsity pattern. Length must equal the number of stored nonzeros. Non-float64 arrays are cast automatically. |
-
-**Warning:** No pattern validation is performed. Passing values from a matrix
-with a different sparsity pattern is undefined behavior.
+| `values` | `numpy.ndarray` | 1D float64 array of nonzero values in CSC storage order, matching the original sparsity pattern. Length must equal the number of stored nonzeros (i.e., `A.data` from the original scipy sparse matrix). Non-float64 arrays are cast automatically. |
 
 ```python
-# Extract the pattern once
-A = sp.csc_matrix(...)
-solver = LDLTSolver(A)
-indices, indptr = A.indices.copy(), A.indptr.copy()
-
 # In a tight loop, just pass new values
 for new_values in value_generator:
-    solver.refactor_values(new_values)
+    solver.refactor(new_values)
     x = solver.solve(b)
 ```
 
 ---
 
-### `solver.solve(rhs)`
+### `solver.solve(rhs, inplace=False)`
 
-Solve `Ax = rhs` and return a **new** NumPy array containing `x`.
+Solve `Ax = rhs`.
+
+By default, allocates and returns a new NumPy array. With `inplace=True`,
+overwrites `rhs` in place and returns it (avoids allocation).
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|---|---|---|
-| `rhs` | `numpy.ndarray` | 1D array of length `n` for a single right-hand side, or 2D array of shape `(n, k)` for `k` right-hand sides. |
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `rhs` | `numpy.ndarray` | *(required)* | 1D array of length `n`, or 2D array of shape `(n, k)`. |
+| `inplace` | `bool` | `False` | If `True`, solve in place. Requires writeable C-contiguous float64 (1D) or F-contiguous float64 (2D). |
 
-**Returns:** `numpy.ndarray` — same shape as `rhs`.
+**Returns:** `numpy.ndarray` — the solution, same shape as `rhs`.
 
 ```python
-# Single right-hand side
+# Allocating solve
 x = solver.solve(b)
 
-# Multiple right-hand sides (n x k)
-B = np.column_stack([b1, b2, b3])
-X = solver.solve(B)
-```
-
----
-
-### `solver.solve_inplace(rhs_and_solution)`
-
-Solve `Ax = b` in place, overwriting `rhs_and_solution` with the result. This
-avoids allocating a new array.
-
-**Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `rhs_and_solution` | `numpy.ndarray` | Writeable array to overwrite. Must be C-contiguous float64 for 1D, or F-contiguous float64 for 2D. |
-
-```python
-b = np.array([1.0, 2.0, 3.0])
-solver.solve_inplace(b)
+# In-place solve (no allocation)
+solver.solve(b, inplace=True)
 # b now contains the solution
 ```
 
@@ -267,19 +225,16 @@ Return a dictionary with solver state and workspace information.
 ## Typical workflow
 
 ```
-Constructor ──► solve()          # one-shot usage
+Constructor ──► solve()                    # one-shot usage
      │
-     ├── refactor() ──► solve()  # same pattern, new values (from scipy matrix)
-     │
-     ├── refactor_values() ──► solve()  # same pattern, fastest path
+     ├── refactor(values) ──► solve()      # same pattern, new values
      │
      └── analyze() ──► factor() ──► solve()  # new sparsity pattern
 ```
 
 1. **One-shot solve:** Pass `A` to the constructor, then call `solve()`.
-2. **Repeated solves, same pattern:** Call `refactor(A_new)` or
-   `refactor_values(new_vals)` then `solve()`. The symbolic analysis from the
-   constructor is reused.
+2. **Repeated solves, same pattern:** Call `refactor(new_vals)` then `solve()`.
+   The symbolic analysis from the constructor is reused.
 3. **New sparsity pattern:** Call `analyze(A_new)` then `factor(A_new)` then
    `solve()`.
 

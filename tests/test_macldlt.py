@@ -96,7 +96,7 @@ class TestSolveInplace:
         _, A_full = A4_upper
         b = np.array([1.0, 2.0, 3.0, 4.0])
         x = b.copy()
-        solver4.solve_inplace(x)
+        solver4.solve(x, inplace=True)
         npt.assert_allclose(x, np.linalg.solve(A_full, b), atol=1e-12)
 
     def test_inplace_2d(self, solver4, A4_upper):
@@ -105,26 +105,26 @@ class TestSolveInplace:
             np.array([[1.0, 2.0], [0.0, 1.0], [3.0, 4.0], [1.0, 0.0]])
         )
         X = B.copy(order="F")
-        solver4.solve_inplace(X)
+        solver4.solve(X, inplace=True)
         npt.assert_allclose(X, np.linalg.solve(A_full, B), atol=1e-12)
 
     def test_inplace_1d_matches_solve(self, solver4):
         b = np.array([1.0, 2.0, 3.0, 4.0])
         x_copy = solver4.solve(b)
         x_inplace = b.copy()
-        solver4.solve_inplace(x_inplace)
+        solver4.solve(x_inplace, inplace=True)
         npt.assert_allclose(x_inplace, x_copy, atol=1e-14)
 
     def test_inplace_rejects_2d_c_contiguous(self, solver4):
         B = np.ones((4, 2))  # C-contiguous by default
         with pytest.raises(ValueError, match="F-contiguous"):
-            solver4.solve_inplace(B)
+            solver4.solve(B, inplace=True)
 
     def test_inplace_rejects_readonly(self, solver4):
         b = np.array([1.0, 2.0, 3.0, 4.0])
         b.flags.writeable = False
         with pytest.raises(ValueError, match="writeable"):
-            solver4.solve_inplace(b)
+            solver4.solve(b, inplace=True)
 
 
 # ---------------------------------------------------------------------------
@@ -145,22 +145,12 @@ class TestRefactor:
         A2_full[3, 2] -= 0.15
 
         A2 = sp.csc_matrix(np.triu(A2_full))
-        solver4.refactor(A2)
+        solver4.refactor(A2.data)
 
         b = np.array([1.0, 2.0, 3.0, 4.0])
         x = solver4.solve(b)
         x_ref = np.linalg.solve(A2_full, b)
         npt.assert_allclose(x, x_ref, atol=1e-12)
-
-    def test_refactor_rejects_different_pattern(self, solver4, A4_upper):
-        _, A_full = A4_upper
-        A_bad = A_full.copy()
-        A_bad[0, 2] = 1.0
-        A_bad[2, 0] = 1.0
-        A_bad_sp = sp.csc_matrix(np.triu(A_bad))
-
-        with pytest.raises(ValueError, match="different sparsity"):
-            solver4.refactor(A_bad_sp)
 
 
 # ---------------------------------------------------------------------------
@@ -413,7 +403,7 @@ class TestEdgeCases:
         )
         X_copy = solver4.solve(B)
         X_inplace = B.copy(order="F")
-        solver4.solve_inplace(X_inplace)
+        solver4.solve(X_inplace, inplace=True)
         npt.assert_allclose(X_inplace, X_copy, atol=1e-14)
 
 
@@ -462,7 +452,7 @@ class TestFactorLifecycle:
         A2_full[0, 0] += 1.0
         A2_full[2, 2] += 1.0
         A2 = sp.csc_matrix(np.triu(A2_full))
-        solver4.refactor(A2)
+        solver4.refactor(A2.data)
 
         for i in range(5):
             b = np.random.default_rng(i).standard_normal(4)
@@ -471,38 +461,11 @@ class TestFactorLifecycle:
 
 
 # ---------------------------------------------------------------------------
-# refactor_values (fast-path refactor)
+# Refactor with values array
 # ---------------------------------------------------------------------------
 
 class TestRefactorValues:
-    def test_matches_refactor(self, solver4, A4_upper):
-        """refactor_values should produce the same result as refactor."""
-        _, A_full = A4_upper
-        A2_full = A_full.copy()
-        A2_full[0, 0] += 0.5
-        A2_full[1, 1] -= 0.25
-        A2_full[2, 2] += 0.75
-        A2_full[3, 3] -= 0.1
-        A2_full[0, 1] += 0.2
-        A2_full[1, 0] += 0.2
-        A2_full[2, 3] -= 0.15
-        A2_full[3, 2] -= 0.15
-        A2 = sp.csc_matrix(np.triu(A2_full))
-
-        # Get reference via refactor
-        A_sp, _ = A4_upper
-        solver_ref = macldlt.LDLTSolver(A_sp, triangle="upper", factorization="ldlt_tpp")
-        solver_ref.refactor(A2)
-        b = np.array([1.0, 2.0, 3.0, 4.0])
-        x_ref = solver_ref.solve(b)
-
-        # Now use refactor_values
-        solver4.refactor_values(A2.data)
-        x = solver4.solve(b)
-        npt.assert_allclose(x, x_ref, atol=1e-14)
-
     def test_correctness(self, A4_upper):
-        """refactor_values produces correct solutions."""
         A_sp, A_full = A4_upper
         solver = macldlt.LDLTSolver(A_sp, triangle="upper")
 
@@ -511,13 +474,13 @@ class TestRefactorValues:
         A2_full[2, 2] += 2.0
         A2 = sp.csc_matrix(np.triu(A2_full))
 
-        solver.refactor_values(A2.data)
+        solver.refactor(A2.data)
         b = np.array([1.0, 2.0, 3.0, 4.0])
         x = solver.solve(b)
         npt.assert_allclose(A2_full @ x, b, atol=1e-12)
 
-    def test_repeated_refactor_values(self, A4_upper):
-        """Multiple refactor_values calls in a loop."""
+    def test_repeated_refactor(self, A4_upper):
+        """Multiple refactor calls in a loop."""
         A_sp, A_full = A4_upper
         solver = macldlt.LDLTSolver(A_sp, triangle="upper")
         b = np.array([1.0, 2.0, 3.0, 4.0])
@@ -528,19 +491,18 @@ class TestRefactorValues:
             A_mod[2, 2] += 0.1 * i
             A_csc = sp.csc_matrix(np.triu(A_mod))
 
-            solver.refactor_values(A_csc.data)
+            solver.refactor(A_csc.data)
             x = solver.solve(b)
             npt.assert_allclose(A_mod @ x, b, atol=1e-12)
 
-    def test_solve_after_refactor_values_is_correct(self):
-        """Verify solve correctness after refactor_values with different values."""
+    def test_solve_after_refactor_is_correct(self):
         A_full_pd = np.array([[4.0, 1.0], [1.0, 3.0]])
         A_pd = sp.csc_matrix(np.triu(A_full_pd))
         solver = macldlt.LDLTSolver(A_pd, factorization="ldlt_tpp")
 
         A_full_2 = np.array([[10.0, 2.0], [2.0, 8.0]])
         A_2 = sp.csc_matrix(np.triu(A_full_2))
-        solver.refactor_values(A_2.data)
+        solver.refactor(A_2.data)
 
         b = np.array([1.0, 2.0])
         x = solver.solve(b)
@@ -548,11 +510,11 @@ class TestRefactorValues:
 
     def test_rejects_wrong_length(self, solver4):
         with pytest.raises(ValueError, match="elements"):
-            solver4.refactor_values(np.array([1.0, 2.0]))
+            solver4.refactor(np.array([1.0, 2.0]))
 
     def test_rejects_2d(self, solver4):
         with pytest.raises((ValueError, TypeError)):
-            solver4.refactor_values(np.ones((3, 3)))
+            solver4.refactor(np.ones((3, 3)))
 
     def test_float32_coercion(self, A4_upper):
         """float32 values should be cast automatically."""
@@ -560,7 +522,7 @@ class TestRefactorValues:
         solver = macldlt.LDLTSolver(A_sp, triangle="upper")
 
         values_f32 = A_sp.data.astype(np.float32)
-        solver.refactor_values(values_f32)
+        solver.refactor(values_f32)
         b = np.array([1.0, 2.0, 3.0, 4.0])
         x = solver.solve(b)
         npt.assert_allclose(A_full @ x, b, atol=1e-12)

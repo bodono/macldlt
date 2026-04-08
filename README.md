@@ -203,6 +203,18 @@ solver = LDLTSolver(A_new) ──► solve()           # new sparsity pattern
    The symbolic analysis from the constructor is reused.
 3. **New sparsity pattern:** Create a new `LDLTSolver` with the new matrix.
 
+## Benchmarking
+
+The main performance win comes from reusing symbolic analysis when only the
+numeric values change. A small benchmark script is included:
+
+```bash
+python benchmarks/refactor_benchmark.py --n 2000 --density 0.002 --iterations 25
+```
+
+This compares repeated `refactor()` calls against rebuilding a fresh
+`LDLTSolver` each iteration for the same sparsity pattern.
+
 ## Triangle conventions
 
 Accelerate's symmetric solver reads only one triangle of the matrix. You

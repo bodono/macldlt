@@ -450,7 +450,16 @@ public:
         int num_positive = 0;
         int num_zero = 0;
         int num_negative = 0;
-        SparseGetInertia(numeric_, &num_positive, &num_zero, &num_negative);
+
+        if (__builtin_available(macOS 13.0, *))
+        {
+            SparseGetInertia(numeric_, &num_positive, &num_zero, &num_negative);
+        }
+        else
+        {
+            throw_runtime_error("inertia() requires macOS 13.0 or newer");
+        }
+
         return py::make_tuple(num_negative, num_zero, num_positive);
     }
 

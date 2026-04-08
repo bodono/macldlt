@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "macldlt"
 version = "0.0.0"
 description = "Python wrapper for Apple Accelerate sparse LDL^T factorization"
+readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
@@ -26,6 +27,11 @@ classifiers = [
     "Programming Language :: C++",
     "Topic :: Scientific/Engineering",
 ]
+
+[project.urls]
+Homepage = "https://github.com/bodono/macldlt"
+Repository = "https://github.com/bodono/macldlt"
+Issues = "https://github.com/bodono/macldlt/issues"
 
 [project.optional-dependencies]
 test = ["pytest"]

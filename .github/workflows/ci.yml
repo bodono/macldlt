@@ -24,5 +24,10 @@ jobs:
       - name: Install package with test dependencies
         run: pip install -e ".[test]"
 
+      - name: Verify sdist and wheel build
+        run: |
+          pip install build
+          python -m build --sdist --wheel
+
       - name: Run tests
         run: pytest tests/ -v --tb=short

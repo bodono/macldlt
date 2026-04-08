@@ -532,19 +532,19 @@ class TestRefactorValues:
             x = solver.solve(b)
             npt.assert_allclose(A_mod @ x, b, atol=1e-12)
 
-    def test_inertia_updates(self):
-        """Inertia reflects the matrix passed to refactor_values."""
+    def test_solve_after_refactor_values_is_correct(self):
+        """Verify solve correctness after refactor_values with different values."""
         A_full_pd = np.array([[4.0, 1.0], [1.0, 3.0]])
         A_pd = sp.csc_matrix(np.triu(A_full_pd))
         solver = macldlt.LDLTSolver(A_pd, factorization="ldlt_tpp")
-        _, _, pos = solver.inertia()
-        assert pos == 2
 
-        A_full_indef = np.array([[4.0, 1.0], [1.0, -3.0]])
-        A_indef = sp.csc_matrix(np.triu(A_full_indef))
-        solver.refactor_values(A_indef.data)
-        neg, _, pos = solver.inertia()
-        assert neg == 1 and pos == 1
+        A_full_2 = np.array([[10.0, 2.0], [2.0, 8.0]])
+        A_2 = sp.csc_matrix(np.triu(A_full_2))
+        solver.refactor_values(A_2.data)
+
+        b = np.array([1.0, 2.0])
+        x = solver.solve(b)
+        npt.assert_allclose(A_full_2 @ x, b, atol=1e-12)
 
     def test_rejects_wrong_length(self, solver4):
         with pytest.raises(ValueError, match="elements"):

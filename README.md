@@ -10,7 +10,9 @@ needed.
 
 **macOS only** — requires macOS 13.0+.
 
-Published wheels target `macosx_13_0_arm64`.
+Published wheels target `macosx_13_0_arm64`, which means macOS 13.0 is the
+minimum supported version; they are intended to run on macOS 13 and newer on
+Apple Silicon.
 
 ## Installation
 

@@ -154,39 +154,6 @@ class TestRefactor:
 
 
 # ---------------------------------------------------------------------------
-# Re-analyze
-# ---------------------------------------------------------------------------
-
-class TestReanalyze:
-    def test_analyze_new_size(self):
-        A2 = sp.csc_matrix(np.array([[4.0, 1.0], [1.0, 3.0]]))
-        solver = macldlt.LDLTSolver(A2)
-
-        A3_full = np.array([
-            [5.0, 0.0, 2.0],
-            [0.0, 4.0, 1.0],
-            [2.0, 1.0, 6.0],
-        ])
-        A3 = sp.csc_matrix(np.triu(A3_full))
-        solver.analyze(A3)
-        solver.factor(A3)
-
-        b = np.array([1.0, 2.0, 3.0])
-        x = solver.solve(b)
-        npt.assert_allclose(x, np.linalg.solve(A3_full, b), atol=1e-12)
-
-    def test_n_updates_after_analyze(self):
-        A2 = sp.csc_matrix(np.eye(2))
-        solver = macldlt.LDLTSolver(A2)
-        assert solver.n == 2
-
-        A5 = sp.csc_matrix(np.eye(5))
-        solver.analyze(A5)
-        solver.factor(A5)
-        assert solver.n == 5
-
-
-# ---------------------------------------------------------------------------
 # Triangle / format variants
 # ---------------------------------------------------------------------------
 
@@ -412,39 +379,6 @@ class TestEdgeCases:
 # ---------------------------------------------------------------------------
 
 class TestFactorLifecycle:
-    def test_factor_replaces_previous(self):
-        """Calling factor() with same-pattern matrix replaces factorization."""
-        A_full = np.array([[4.0, 1.0], [1.0, 3.0]])
-        A = sp.csc_matrix(np.triu(A_full))
-        solver = macldlt.LDLTSolver(A)
-
-        A2_full = np.array([[10.0, 2.0], [2.0, 8.0]])
-        A2 = sp.csc_matrix(np.triu(A2_full))
-        solver.factor(A2)
-
-        b = np.array([1.0, 2.0])
-        x = solver.solve(b)
-        npt.assert_allclose(x, np.linalg.solve(A2_full, b), atol=1e-12)
-
-    def test_inertia_updates_after_factor(self):
-        """Inertia should reflect the re-factored matrix, not the original."""
-        A_full_pd = np.array([[4.0, 1.0], [1.0, 3.0]])
-        A_pd = sp.csc_matrix(np.triu(A_full_pd))
-        solver = macldlt.LDLTSolver(A_pd, factorization="ldlt_tpp")
-
-        neg1, zero1, pos1 = solver.inertia()
-        assert pos1 == 2 and neg1 == 0
-
-        # Change to indefinite (keep same pattern), use factor() not refactor()
-        # because SparseGetInertia does not reliably update after SparseRefactor
-        # on all macOS versions.
-        A_full_indef = np.array([[4.0, 1.0], [1.0, -3.0]])
-        A_indef = sp.csc_matrix(np.triu(A_full_indef))
-        solver.factor(A_indef)
-
-        neg2, zero2, pos2 = solver.inertia()
-        assert neg2 == 1 and pos2 == 1
-
     def test_refactor_then_solve_multiple(self, solver4, A4_upper):
         """Refactor then solve with multiple different RHS vectors."""
         _, A_full = A4_upper

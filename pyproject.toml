@@ -16,7 +16,6 @@ dependencies = [
     "scipy",
 ]
 classifiers = [
-    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: 3",

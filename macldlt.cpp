@@ -466,25 +466,24 @@ public:
 
         numeric_owner_ = csc.matrix;
         numeric_values_ = csc.data_d;
-        numeric_matrix_ = make_sparse_matrix_from_current_numeric();
+        refactor_current_numeric();
+    }
 
-        const size_t required = required_factor_workspace_bytes();
-        ensure_factor_workspace(required);
+    void refactor_values(py::array_t<double, py::array::c_style | py::array::forcecast> values)
+    {
+        ensure_numeric();
 
+        const ssize_t expected_nnz = pattern_indices_.shape(0);
+        if (values.ndim() != 1 || values.shape(0) != expected_nnz)
         {
-            py::gil_scoped_release release;
-            SparseRefactor(
-                numeric_matrix_,
-                &numeric_,
-                aligned_ptr(factor_workspace_.get(), factor_workspace_size_, required));
+            throw_value_error(
+                "values must be a 1D array with " + std::to_string(expected_nnz) +
+                " elements (matching the sparsity pattern)");
         }
 
-        // Per Accelerate API usage, refactor status is read back from numeric_.
-        if (numeric_.status != SparseStatusOK)
-        {
-            throw_runtime_error("refactor failed: " +
-                                sparse_status_to_string(numeric_.status));
-        }
+        numeric_owner_ = py::none();
+        numeric_values_ = std::move(values);
+        refactor_current_numeric();
     }
 
     py::array solve(const py::array& rhs)
@@ -715,6 +714,28 @@ private:
         return A;
     }
 
+    void refactor_current_numeric()
+    {
+        numeric_matrix_ = make_sparse_matrix_from_current_numeric();
+
+        const size_t required = required_factor_workspace_bytes();
+        ensure_factor_workspace(required);
+
+        {
+            py::gil_scoped_release release;
+            SparseRefactor(
+                numeric_matrix_,
+                &numeric_,
+                aligned_ptr(factor_workspace_.get(), factor_workspace_size_, required));
+        }
+
+        if (numeric_.status != SparseStatusOK)
+        {
+            throw_runtime_error("refactor failed: " +
+                                sparse_status_to_string(numeric_.status));
+        }
+    }
+
     size_t required_factor_workspace_bytes() const
     {
         ensure_symbolic();
@@ -900,6 +921,33 @@ Reuse the existing symbolic analysis and numeric factorization object for a new
 matrix with identical sparsity pattern.
 
 This may be faster than factor() when only the numerical values change.
+)pbdoc")
+        .def("refactor_values",
+             &LDLTSolver::refactor_values,
+             py::arg("values"),
+             R"pbdoc(
+Fast-path refactor using only the nonzero values array.
+
+This is equivalent to refactor() but skips all scipy matrix parsing, format
+conversion, and sparsity pattern validation. Use this in tight loops where
+the sparsity pattern is unchanged and you already have the flat values array.
+
+Parameters
+----------
+values : numpy.ndarray
+    1D float64 array of nonzero values, in the same CSC storage order as
+    the matrix used in the most recent analyze() call. The length must
+    match the number of stored entries in the sparsity pattern (i.e.,
+    ``A.data`` from the original scipy sparse matrix).
+
+    Non-float64 arrays are cast automatically, but passing float64 avoids
+    the copy.
+
+Notes
+-----
+No pattern validation is performed. Passing values from a matrix with a
+different sparsity pattern is undefined behavior and may silently produce
+wrong results.
 )pbdoc")
         .def("solve",
              &LDLTSolver::solve,

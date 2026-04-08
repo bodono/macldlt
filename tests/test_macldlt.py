@@ -468,3 +468,99 @@ class TestFactorLifecycle:
             b = np.random.default_rng(i).standard_normal(4)
             x = solver4.solve(b)
             npt.assert_allclose(A2_full @ x, b, atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# refactor_values (fast-path refactor)
+# ---------------------------------------------------------------------------
+
+class TestRefactorValues:
+    def test_matches_refactor(self, solver4, A4_upper):
+        """refactor_values should produce the same result as refactor."""
+        _, A_full = A4_upper
+        A2_full = A_full.copy()
+        A2_full[0, 0] += 0.5
+        A2_full[1, 1] -= 0.25
+        A2_full[2, 2] += 0.75
+        A2_full[3, 3] -= 0.1
+        A2_full[0, 1] += 0.2
+        A2_full[1, 0] += 0.2
+        A2_full[2, 3] -= 0.15
+        A2_full[3, 2] -= 0.15
+        A2 = sp.csc_matrix(np.triu(A2_full))
+
+        # Get reference via refactor
+        A_sp, _ = A4_upper
+        solver_ref = macldlt.LDLTSolver(A_sp, triangle="upper", factorization="ldlt_tpp")
+        solver_ref.refactor(A2)
+        b = np.array([1.0, 2.0, 3.0, 4.0])
+        x_ref = solver_ref.solve(b)
+
+        # Now use refactor_values
+        solver4.refactor_values(A2.data)
+        x = solver4.solve(b)
+        npt.assert_allclose(x, x_ref, atol=1e-14)
+
+    def test_correctness(self, A4_upper):
+        """refactor_values produces correct solutions."""
+        A_sp, A_full = A4_upper
+        solver = macldlt.LDLTSolver(A_sp, triangle="upper")
+
+        A2_full = A_full.copy()
+        A2_full[0, 0] += 1.0
+        A2_full[2, 2] += 2.0
+        A2 = sp.csc_matrix(np.triu(A2_full))
+
+        solver.refactor_values(A2.data)
+        b = np.array([1.0, 2.0, 3.0, 4.0])
+        x = solver.solve(b)
+        npt.assert_allclose(A2_full @ x, b, atol=1e-12)
+
+    def test_repeated_refactor_values(self, A4_upper):
+        """Multiple refactor_values calls in a loop."""
+        A_sp, A_full = A4_upper
+        solver = macldlt.LDLTSolver(A_sp, triangle="upper")
+        b = np.array([1.0, 2.0, 3.0, 4.0])
+
+        for i in range(10):
+            A_mod = A_full.copy()
+            A_mod[0, 0] += 0.1 * i
+            A_mod[2, 2] += 0.1 * i
+            A_csc = sp.csc_matrix(np.triu(A_mod))
+
+            solver.refactor_values(A_csc.data)
+            x = solver.solve(b)
+            npt.assert_allclose(A_mod @ x, b, atol=1e-12)
+
+    def test_inertia_updates(self):
+        """Inertia reflects the matrix passed to refactor_values."""
+        A_full_pd = np.array([[4.0, 1.0], [1.0, 3.0]])
+        A_pd = sp.csc_matrix(np.triu(A_full_pd))
+        solver = macldlt.LDLTSolver(A_pd, factorization="ldlt_tpp")
+        _, _, pos = solver.inertia()
+        assert pos == 2
+
+        A_full_indef = np.array([[4.0, 1.0], [1.0, -3.0]])
+        A_indef = sp.csc_matrix(np.triu(A_full_indef))
+        solver.refactor_values(A_indef.data)
+        neg, _, pos = solver.inertia()
+        assert neg == 1 and pos == 1
+
+    def test_rejects_wrong_length(self, solver4):
+        with pytest.raises(ValueError, match="elements"):
+            solver4.refactor_values(np.array([1.0, 2.0]))
+
+    def test_rejects_2d(self, solver4):
+        with pytest.raises((ValueError, TypeError)):
+            solver4.refactor_values(np.ones((3, 3)))
+
+    def test_float32_coercion(self, A4_upper):
+        """float32 values should be cast automatically."""
+        A_sp, A_full = A4_upper
+        solver = macldlt.LDLTSolver(A_sp, triangle="upper")
+
+        values_f32 = A_sp.data.astype(np.float32)
+        solver.refactor_values(values_f32)
+        b = np.array([1.0, 2.0, 3.0, 4.0])
+        x = solver.solve(b)
+        npt.assert_allclose(A_full @ x, b, atol=1e-12)

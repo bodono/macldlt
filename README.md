@@ -8,8 +8,9 @@ to Python via [pybind11](https://github.com/pybind/pybind11). It accepts
 SciPy sparse matrices and NumPy arrays directly, with no manual conversion
 needed.
 
-**macOS only** — requires macOS 13.0+ for full functionality (including
-`SparseGetInertia`).
+**macOS only** — requires macOS 13.0+.
+
+Published wheels target `macosx_13_0_arm64`.
 
 ## Installation
 

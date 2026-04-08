@@ -54,8 +54,8 @@ print(x)  # [0.09090909 0.63636364]
 
 ### `LDLTSolver(A, triangle="upper", ordering="amd", factorization="ldlt")`
 
-Create a solver by performing symbolic analysis and numeric factorization of
-`A`.
+Perform symbolic analysis and numeric factorization of `A`. The solver is
+immediately ready to call `solve()`.
 
 **Parameters:**
 
@@ -73,6 +73,7 @@ Create a solver by performing symbolic analysis and numeric factorization of
   `triangle` to whichever triangle contains the data you want used.
 - The solver is **not thread-safe**. Do not call methods concurrently on the
   same instance from multiple threads.
+- For a new sparsity pattern, create a new solver.
 
 **Example:**
 
@@ -84,41 +85,6 @@ A_upper = sp.csc_matrix(np.array([
     [0.0, 0.0, 5.0],
 ]))
 solver = LDLTSolver(A_upper, triangle="upper")
-```
-
----
-
-### `solver.analyze(A)`
-
-Redo symbolic analysis for a **new sparsity pattern**. This discards both the
-existing symbolic and numeric factorizations and rebuilds them. You must call
-`factor()` after this before solving.
-
-Call this when the nonzero structure of your matrix changes (e.g., entries
-appear or disappear). If only the numerical values change, use `refactor()`
-instead.
-
-```python
-A_new_pattern = sp.csc_matrix(...)  # different sparsity structure
-solver.analyze(A_new_pattern)
-solver.factor(A_new_pattern)
-x = solver.solve(b)
-```
-
----
-
-### `solver.factor(A)`
-
-Compute a fresh numeric factorization for the current sparsity pattern. The
-matrix `A` must have the same sparsity pattern as the matrix used in the most
-recent `analyze()` call (or the constructor).
-
-Use this when you want a clean numeric factorization, discarding any previous
-one.
-
-```python
-solver.factor(A_updated)
-x = solver.solve(b)
 ```
 
 ---
@@ -225,18 +191,17 @@ Return a dictionary with solver state and workspace information.
 ## Typical workflow
 
 ```
-Constructor ──► solve()                    # one-shot usage
-     │
-     ├── refactor(values) ──► solve()      # same pattern, new values
-     │
-     └── analyze() ──► factor() ──► solve()  # new sparsity pattern
+solver = LDLTSolver(A) ──► solve()              # one-shot usage
+              │
+              └── refactor(values) ──► solve()   # same pattern, new values
+
+solver = LDLTSolver(A_new) ──► solve()           # new sparsity pattern
 ```
 
 1. **One-shot solve:** Pass `A` to the constructor, then call `solve()`.
 2. **Repeated solves, same pattern:** Call `refactor(new_vals)` then `solve()`.
    The symbolic analysis from the constructor is reused.
-3. **New sparsity pattern:** Call `analyze(A_new)` then `factor(A_new)` then
-   `solve()`.
+3. **New sparsity pattern:** Create a new `LDLTSolver` with the new matrix.
 
 ## Triangle conventions
 

@@ -254,32 +254,6 @@ std::vector<long> make_column_starts_long(const py::array_t<int64_t>& indptr)
     return out;
 }
 
-bool same_pattern(const py::array_t<int>& a_idx,
-                  const py::array_t<int64_t>& a_ptr,
-                  const py::array_t<int>& b_idx,
-                  const py::array_t<int64_t>& b_ptr)
-{
-    // Safe because all arrays are forcecast/c_style 1D arrays.
-    if (a_idx.shape(0) != b_idx.shape(0) || a_ptr.shape(0) != b_ptr.shape(0))
-    {
-        return false;
-    }
-
-    if (std::memcmp(a_ptr.data(), b_ptr.data(),
-                    static_cast<size_t>(a_ptr.size()) * sizeof(int64_t)) != 0)
-    {
-        return false;
-    }
-
-    if (std::memcmp(a_idx.data(), b_idx.data(),
-                    static_cast<size_t>(a_idx.size()) * sizeof(int)) != 0)
-    {
-        return false;
-    }
-
-    return true;
-}
-
 DenseVector_Double make_dense_vector(py::array_t<double, py::array::c_style>& x)
 {
     auto buf = x.request();
@@ -354,8 +328,7 @@ public:
           ordering_(parse_ordering(ordering)),
           factorization_(parse_factorization(factorization))
     {
-        analyze(A);
-        factor(A);
+        analyze_and_factor(A);
     }
 
     ~LDLTSolver()
@@ -368,94 +341,6 @@ public:
     LDLTSolver& operator=(const LDLTSolver&) = delete;
     LDLTSolver(LDLTSolver&&) = delete;
     LDLTSolver& operator=(LDLTSolver&&) = delete;
-
-    void analyze(const py::object& A)
-    {
-        cleanup_numeric();
-        cleanup_symbolic();
-
-        ScipyCSCView csc(A, false);
-
-        keep_pattern_owner_ = csc.matrix;
-        pattern_indices_ = csc.indices_i;
-        pattern_indptr_ = csc.indptr_i64;
-        column_starts_ = make_column_starts_long(csc.indptr_i64);
-        n_ = csc.n;
-
-        structure_ = {};
-        structure_.rowCount = n_;
-        structure_.columnCount = n_;
-        structure_.columnStarts = column_starts_.data();
-
-        // Accelerate API takes mutable pointers here, but the index structure
-        // is treated as read-only input by this wrapper.
-        structure_.rowIndices = const_cast<int*>(pattern_indices_.data());
-
-        structure_.attributes.transpose = false;
-        structure_.attributes.triangle = triangle_;
-        structure_.attributes.kind = SparseSymmetric;
-        structure_.attributes._reserved = 0;
-        structure_.attributes._allocatedBySparse = 0;
-        structure_.blockSize = 1;
-
-        SparseSymbolicFactorOptions sfopts{};
-        sfopts.control = SparseDefaultControl;
-        sfopts.orderMethod = ordering_;
-        sfopts.order = nullptr;
-        sfopts.ignoreRowsAndColumns = nullptr;
-        sfopts.malloc = malloc;
-        sfopts.free = free;
-        sfopts.reportError = nullptr;
-
-        SparseOpaqueSymbolicFactorization sym{};
-        {
-            py::gil_scoped_release release;
-            sym = SparseFactor(factorization_, structure_, sfopts);
-        }
-
-        if (sym.status != SparseStatusOK)
-        {
-            throw_runtime_error(
-                "symbolic factorization failed: " + sparse_status_to_string(sym.status));
-        }
-
-        symbolic_ = sym;
-        symbolic_valid_ = true;
-
-        ensure_factor_workspace(required_factor_workspace_bytes());
-    }
-
-    void factor(const py::object& A)
-    {
-        ensure_symbolic();
-        cleanup_numeric();
-
-        ScipyCSCView csc(A, false);
-        enforce_same_pattern(csc);
-
-        numeric_owner_ = csc.matrix;
-        numeric_values_ = csc.data_d;
-        numeric_matrix_ = make_sparse_matrix_from_current_numeric();
-
-        SparseOpaqueFactorization_Double num{};
-        {
-            py::gil_scoped_release release;
-            num = SparseFactor(symbolic_, numeric_matrix_);
-        }
-
-        if (num.status != SparseStatusOK)
-        {
-            clear_numeric_state_only();
-            throw_runtime_error(
-                "numeric factorization failed: " + sparse_status_to_string(num.status));
-        }
-
-        numeric_ = num;
-        numeric_valid_ = true;
-
-        ensure_factor_workspace(required_factor_workspace_bytes());
-        ensure_solve_workspace(required_solve_workspace_bytes(1));
-    }
 
     void refactor(py::array_t<double, py::array::c_style | py::array::forcecast> values)
     {
@@ -631,8 +516,88 @@ private:
     {
         if (!numeric_valid_)
         {
-            throw_runtime_error("numeric factorization not available; call factor() first");
+            throw_runtime_error("numeric factorization not available");
         }
+    }
+
+    void analyze_and_factor(const py::object& A)
+    {
+        cleanup_numeric();
+        cleanup_symbolic();
+
+        ScipyCSCView csc(A, false);
+
+        keep_pattern_owner_ = csc.matrix;
+        pattern_indices_ = csc.indices_i;
+        pattern_indptr_ = csc.indptr_i64;
+        column_starts_ = make_column_starts_long(csc.indptr_i64);
+        n_ = csc.n;
+
+        structure_ = {};
+        structure_.rowCount = n_;
+        structure_.columnCount = n_;
+        structure_.columnStarts = column_starts_.data();
+
+        // Accelerate API takes mutable pointers here, but the index structure
+        // is treated as read-only input by this wrapper.
+        structure_.rowIndices = const_cast<int*>(pattern_indices_.data());
+
+        structure_.attributes.transpose = false;
+        structure_.attributes.triangle = triangle_;
+        structure_.attributes.kind = SparseSymmetric;
+        structure_.attributes._reserved = 0;
+        structure_.attributes._allocatedBySparse = 0;
+        structure_.blockSize = 1;
+
+        SparseSymbolicFactorOptions sfopts{};
+        sfopts.control = SparseDefaultControl;
+        sfopts.orderMethod = ordering_;
+        sfopts.order = nullptr;
+        sfopts.ignoreRowsAndColumns = nullptr;
+        sfopts.malloc = malloc;
+        sfopts.free = free;
+        sfopts.reportError = nullptr;
+
+        SparseOpaqueSymbolicFactorization sym{};
+        {
+            py::gil_scoped_release release;
+            sym = SparseFactor(factorization_, structure_, sfopts);
+        }
+
+        if (sym.status != SparseStatusOK)
+        {
+            throw_runtime_error(
+                "symbolic factorization failed: " + sparse_status_to_string(sym.status));
+        }
+
+        symbolic_ = sym;
+        symbolic_valid_ = true;
+
+        ensure_factor_workspace(required_factor_workspace_bytes());
+
+        // Numeric factorization
+        numeric_owner_ = csc.matrix;
+        numeric_values_ = csc.data_d;
+        numeric_matrix_ = make_sparse_matrix_from_current_numeric();
+
+        SparseOpaqueFactorization_Double num{};
+        {
+            py::gil_scoped_release release;
+            num = SparseFactor(symbolic_, numeric_matrix_);
+        }
+
+        if (num.status != SparseStatusOK)
+        {
+            clear_numeric_state_only();
+            throw_runtime_error(
+                "numeric factorization failed: " + sparse_status_to_string(num.status));
+        }
+
+        numeric_ = num;
+        numeric_valid_ = true;
+
+        ensure_factor_workspace(required_factor_workspace_bytes());
+        ensure_solve_workspace(required_solve_workspace_bytes(1));
     }
 
     void clear_symbolic_state_only()
@@ -674,20 +639,6 @@ private:
             SparseCleanup(numeric_);
         }
         clear_numeric_state_only();
-    }
-
-    void enforce_same_pattern(const ScipyCSCView& csc) const
-    {
-        if (csc.n != n_)
-        {
-            throw_value_error("matrix dimension changed; pattern reuse requires same shape");
-        }
-
-        if (!same_pattern(pattern_indices_, pattern_indptr_, csc.indices_i, csc.indptr_i64))
-        {
-            throw_value_error(
-                "new matrix has different sparsity pattern; call analyze() again");
-        }
     }
 
     SparseMatrix_Double make_sparse_matrix_from_current_numeric()
@@ -857,13 +808,17 @@ Construct an LDLT solver for a symmetric sparse matrix.
 
 Notes
 -----
-This class is not thread-safe. Do not call factor(), refactor(), or solve()
-concurrently on the same solver instance from multiple Python threads.
+This class is not thread-safe. Do not call refactor() or solve() concurrently
+on the same solver instance from multiple Python threads.
 
 Symmetry is assumed but not checked. The selected stored triangle is assumed to
 match the matrix data actually provided. Passing a nonsymmetric matrix, or
 choosing the wrong stored triangle, may produce incorrect results or solver
 failure.
+
+The constructor performs both symbolic analysis and numeric factorization. To
+update the numeric values without re-analyzing, use refactor(). For a new
+sparsity pattern, create a new solver.
 
 Parameters
 ----------
@@ -880,25 +835,6 @@ ordering : {'default', 'amd', 'metis', 'colamd'}
 factorization : {'ldlt', 'ldlt_tpp', 'ldlt_sbk', 'ldlt_unpivoted'}
     LDLT variant. 'ldlt' is Accelerate's default LDLT.
 )pbdoc")
-        .def("analyze",
-             &LDLTSolver::analyze,
-             py::arg("A"),
-             R"pbdoc(
-Redo symbolic analysis for a new sparsity pattern.
-
-The matrix must be square. Symmetry and triangle consistency are assumed, not
-checked.
-)pbdoc")
-        .def("factor",
-             &LDLTSolver::factor,
-             py::arg("A"),
-             R"pbdoc(
-Compute a fresh numeric factorization for the currently analyzed sparsity
-pattern.
-
-Use this after analyze(), or whenever you want to discard any previous numeric
-factorization object and rebuild it from the current matrix values.
-)pbdoc")
         .def("refactor",
              &LDLTSolver::refactor,
              py::arg("values"),
@@ -910,9 +846,9 @@ Parameters
 ----------
 values : numpy.ndarray
     1D float64 array of nonzero values, in the same CSC storage order as
-    the matrix used in the most recent analyze() call. The length must
-    match the number of stored entries in the sparsity pattern (i.e.,
-    ``A.data`` from the original scipy sparse matrix).
+    the matrix passed to the constructor. The length must match the number
+    of stored entries in the sparsity pattern (i.e., ``A.data`` from the
+    original scipy sparse matrix).
 
     Non-float64 arrays are cast automatically, but passing float64 avoids
     the copy.

@@ -1,5 +1,7 @@
 # macldlt v0.0.0
 
+[![CI](https://github.com/bodono/macldlt/actions/workflows/ci.yml/badge.svg)](https://github.com/bodono/macldlt/actions/workflows/ci.yml)
+
 Python wrapper for Apple Accelerate's sparse LDL^T factorization.
 
 `macldlt` exposes the symmetric indefinite sparse solver from Apple's
@@ -10,6 +12,8 @@ needed.
 
 **macOS only** — requires macOS 13.0+ for full functionality (including
 `SparseGetInertia`).
+
+Prebuilt wheels are published for Apple Silicon (`macOS arm64`) only.
 
 ## Installation
 

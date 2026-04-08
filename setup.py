@@ -1,9 +1,5 @@
-import os
-
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import setup
-
-os.environ.setdefault("MACOSX_DEPLOYMENT_TARGET", "13.0")
 
 ext_modules = [
     Pybind11Extension(

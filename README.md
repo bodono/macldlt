@@ -1,4 +1,4 @@
-# macldlt v0.0.0
+# macldlt
 
 [![CI](https://github.com/bodono/macldlt/actions/workflows/ci.yml/badge.svg)](https://github.com/bodono/macldlt/actions/workflows/ci.yml)
 

@@ -33,3 +33,53 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
+
+  release-artifacts:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build cibuildwheel twine
+
+      - name: Build release-style wheel
+        run: cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_BUILD: "cp312-*"
+          CIBW_ARCHS_MACOS: "arm64"
+          CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=13.0
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: pytest {project}/tests -v
+
+      - name: Build sdist
+        run: python -m build --sdist
+
+      - name: Check package metadata rendering
+        run: python -m twine check wheelhouse/*.whl dist/*.tar.gz
+
+      - name: Verify README metadata is present
+        run: |
+          python - <<'PY'
+          import pathlib
+          import tarfile
+          import zipfile
+
+          def assert_has_markdown_description(text: str, artifact: str) -> None:
+              if "Description-Content-Type: text/markdown" not in text:
+                  raise SystemExit(f"{artifact} is missing Markdown description metadata")
+
+          wheel = next(pathlib.Path("wheelhouse").glob("*.whl"))
+          with zipfile.ZipFile(wheel) as zf:
+              metadata_name = next(name for name in zf.namelist() if name.endswith(".dist-info/METADATA"))
+              assert_has_markdown_description(zf.read(metadata_name).decode(), str(wheel))
+
+          sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
+          with tarfile.open(sdist, "r:gz") as tf:
+              pkg_info = next(member for member in tf.getmembers() if member.name.endswith("PKG-INFO"))
+              assert_has_markdown_description(tf.extractfile(pkg_info).read().decode(), str(sdist))
+          PY

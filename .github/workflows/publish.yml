@@ -71,4 +71,32 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Validate package metadata
+        run: |
+          python -m pip install twine
+          python -m twine check dist/*
+          python - <<'PY'
+          import pathlib
+          import tarfile
+          import zipfile
+
+          def assert_has_markdown_description(text: str, artifact: str) -> None:
+              if "Description-Content-Type: text/markdown" not in text:
+                  raise SystemExit(f"{artifact} is missing Markdown description metadata")
+
+          wheel = next(pathlib.Path("dist").glob("*.whl"))
+          with zipfile.ZipFile(wheel) as zf:
+              metadata_name = next(name for name in zf.namelist() if name.endswith(".dist-info/METADATA"))
+              assert_has_markdown_description(zf.read(metadata_name).decode(), str(wheel))
+
+          sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
+          with tarfile.open(sdist, "r:gz") as tf:
+              pkg_info = next(member for member in tf.getmembers() if member.name.endswith("PKG-INFO"))
+              assert_has_markdown_description(tf.extractfile(pkg_info).read().decode(), str(sdist))
+          PY
+
       - uses: pypa/gh-action-pypi-publish@release/v1

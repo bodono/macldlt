@@ -806,8 +806,13 @@ PYBIND11_MODULE(macldlt, m)
 {
     m.doc() = "pybind11 wrapper for Apple Accelerate sparse LDLT with symbolic reuse";
 
-    py::class_<LDLTSolver>(m, "LDLTSolver")
-        .def(py::init<py::object, std::string_view, std::string_view, std::string_view>(),
+    auto solver = py::class_<LDLTSolver>(m, "LDLTSolver");
+    solver.attr("__doc__") = R"pbdoc(
+Construct an LDLT solver for a symmetric sparse matrix with reusable symbolic
+analysis.
+)pbdoc";
+
+    solver.def(py::init<py::object, std::string_view, std::string_view, std::string_view>(),
              py::arg("A"),
              py::arg("triangle") = "upper",
              py::arg("ordering") = "amd",

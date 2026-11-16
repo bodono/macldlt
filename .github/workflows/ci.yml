@@ -83,3 +83,18 @@ jobs:
               pkg_info = next(member for member in tf.getmembers() if member.name.endswith("PKG-INFO"))
               assert_has_markdown_description(tf.extractfile(pkg_info).read().decode(), str(sdist))
           PY
+
+  # GitHub auto-disables scheduled workflows in public repos after 60 days with
+  # no repository activity, and scheduled runs themselves don't count. Calling
+  # the "enable workflow" API on an already-active workflow resets that timer,
+  # so each weekly run keeps the schedule alive without dummy commits.
+  keepalive:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Reset scheduled-workflow inactivity timer
+        run: gh api --method PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/enable"
+        env:
+          GH_TOKEN: ${{ github.token }}
